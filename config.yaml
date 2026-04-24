@@ -1,0 +1,178 @@
+# CONVIO - Configuration File
+# All settings are read at application start. Restart required to apply changes.
+
+
+# --------------------------
+# Paths and File Handling
+# --------------------------
+
+paths:
+  data_dir: "./data"                                    # Default location for chassis/IO input data
+  export_dir: "./export"                                # Where to save output/results/reports
+  default_chassis_json: "./data/truck.json"
+  default_io_csv: "./data/exemplary_IO_coordinates.csv"
+  log_dir: "./logs"
+  log_file: "./logs/optimizer.log"
+
+# --------------------------
+# Graph Loader
+# --------------------------
+
+graph_loader:
+  min_direct_node_distance_mm: 2000.0     # [mm] If IO is <= this from node: direct connect, else project to edge
+  allow_projection_on_edge: true          # If false, disables IO-to-edge logic entirely (legacy fallback)
+  skip_self_loops: true
+
+# --------------------------
+# Elbow Method
+# --------------------------
+
+elbow_method:
+  k_min: 1
+  k_max: 12                               # Will be capped to number of IO points
+  n_init: 10                              # KMeans restarts for stability
+  random_state: 42                        # For reproducibility
+
+# --------------------------
+# Clustering & Dijkstra
+# --------------------------
+
+clustering:
+  max_clusters_supported: 100
+
+  # Centroid Optimizer Settings (integrated)
+  edge_sample_step: 0.25                  # 0.1=very fine, 0.25=faster, 0.5=coarse
+  include_node_candidates: true           # Consider chassis nodes as centroid options
+
+# --------------------------
+# Cost / Business Calculation
+# --------------------------
+
+cost:
+  currency: "EURO"
+  wire_price_per_m: 1.5
+  CAN_bus_price_per_m: 1.7
+  wire_weight_per_m_kg: 0.05              # 50g per meter
+
+# --------------------------
+# GUI and Visualization
+# --------------------------
+
+gui:
+  window_size: [1500, 900]
+  color_palette:
+    [ "#8dd3c7", "#ffffb3", "#bebada", "#fb8072",
+      "#80b1d3", "#fdb462", "#b3de69", "#fccde5",
+      "#d9d9d9", "#bc80bd", "#ccebc5", "#ffed6f" ]
+
+# --------------------------
+# Logging
+# --------------------------
+
+logging:
+  level: "INFO"                           # DEBUG | INFO | WARNING | ERROR
+  enable_log_to_file: true
+  enable_log_to_console: true
+  fmt: "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+  datefmt: "%H:%M:%S"
+
+# --------------------------
+# Error Handling
+# --------------------------
+
+error_handling:
+  log_stack_trace_on_error: true
+
+# --------------------------
+# Reproducibility
+# --------------------------
+
+reproducibility:
+  set_global_seeds: true
+  numpy_seed: 42
+
+
+# Node Type Definitions - Keep it Simple!
+# SYMBOL_MAP supported by pyqtgraph =
+#     "circle":   "o",
+#     "square":   "s",
+#     "triangle": "t",
+#     "diamond":  "d",
+#     "cross":    "+",
+#     "plus":     "+",
+#     "x":        "x",
+#     "star":     "star",
+#     "hexagon":  "h",
+
+# --------------------------
+# Node Configuration
+# --------------------------
+
+node_configuration:
+  hpc_node_name: "H1"                     # Identifier for the High-Performance Computer node
+
+node_definitions:
+  # Node type mapping based on prefixes
+  node_types:
+    junction:
+      prefixes: ["J"]
+      description: "Chassis junction points"
+      color: "#4A90E2"                    # Blue
+      size: 10
+      symbol: "o"
+
+    Wire junction:
+      prefixes: ["W"]
+      description: "Wire junction points"
+      color: "#BD10E0"                    # Purple
+      size: 10
+      symbol: "o"
+
+    hpc:
+      prefixes: ["H"]
+      description: "High Performance Computer nodes"
+      color: "#50E3C2"                    # Green
+      size: 16
+      symbol: "d"
+
+    io:
+      prefixes: ["I"]
+      description: "Input/Output nodes"
+      color: "#F5A623"                    # Orange
+      size: 5
+      symbol: "o"
+
+    sensor:
+      prefixes: ["S"]
+      description: "Sensor nodes"
+      color: "#BD10E8"
+      size: 6
+      symbol: "t"
+
+    actuator:
+      prefixes: ["A"]
+      description: "Actuator nodes"
+      color: "#B8E986"                    # Light green
+      size: 10
+      symbol: "t"
+
+    power:
+      prefixes: ["P"]
+      description: "Power distribution nodes"
+      color: "#D0021B"                    # Red
+      size: 14
+      symbol: "+"
+
+    io_aggregator:
+      prefixes: ["E"]
+      description: "I/O Aggregator nodes"
+      color: "#7ED321"                    # Bright green
+      size: 12
+      symbol: "s"
+
+  # Fallback for unrecognized nodes
+  default_node:
+    color: "#9B9B9B"                      # Gray
+    size: 6
+    symbol: "+"
+    description: "Unknown node type"
