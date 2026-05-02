@@ -197,92 +197,19 @@ def draw_bus_topology(
         draw_path(view, can_path, pos, BUS_PEN, legend_label="Bus Path (CAN FD)")
 
 
-def draw_redundant_return(
-    view: pg.PlotWidget,
-    clustering_results: Dict[str, Any],
-    graph,
-    pos: Dict[str, Tuple[float, float]],
-) -> None:
-    """Draw the shortest return path from last aggregator back to HPC."""
-    can_path = clustering_results.get("can_bus", {}).get("path", [])
-    if len(can_path) < 2:
-        return
-
-    chassis_nodes = set(n for n, d in graph.nodes(data=True) if not d.get("is_io"))
-    chassis       = graph.subgraph(chassis_nodes).copy()
-
-    # can_path may end on an EXT_ aggregator node (which isn't in the
-    # chassis subgraph). Walk backwards to find the last chassis node.
-    last_chassis = next((n for n in reversed(can_path) if n in chassis_nodes), None)
-    first        = can_path[0]
-    if not last_chassis or first not in chassis_nodes or last_chassis == first:
-        return
-    try:
-        return_path = nx.dijkstra_path(chassis, source=last_chassis, target=first, weight="weight")
-        draw_path(view, return_path, pos, REDUNDANT_PEN, legend_label="Redundant Return Path")
-    except Exception as e:
-        import logging
-        logging.getLogger(__name__).warning(f"Redundant return path failed: {e}")
+# Note: the redundant return path is no longer computed here.
+# main_window.WiringHarnessOptimizer._compute_redundant_return computes an
+# edge-disjoint return path on the chassis (excluding all forward bus edges)
+# plus the EXT→chassis connector segment. The mixin reads the cached path
+# and calls draw_path() directly with REDUNDANT_PEN.
 
 
-def draw_star_ring_topology(
-    view: pg.PlotWidget,
-    clustering_results: Dict[str, Any],
-    graph,
-    pos: Dict[str, Tuple[float, float]],
-    hpc_node: str,
-) -> None:
-    """
-    Draw star paths (HPC → each aggregator) and a ring connecting all aggregators.
-    """
-    chassis_nodes = [n for n, d in graph.nodes(data=True) if not d.get("is_io")]
-    chassis       = graph.subgraph(chassis_nodes).copy()
-    clusters      = clustering_results.get("clusters", {})
-
-    attach_nodes = []
-    star_added   = ring_added = False
-
-    for cluster_id, cluster_data in clusters.items():
-        if cluster_id == "can_bus":
-            continue
-        centroid = cluster_data.get("centroid")
-        if not centroid:
-            continue
-
-        attach = (
-            centroid["node"] if centroid["type"] == "node"
-            else (centroid["u"] if centroid.get("t", 0.5) <= 0.5 else centroid["v"])
-        )
-        attach_nodes.append(attach)
-
-        # Star: HPC → this aggregator's chassis attachment
-        if hpc_node in chassis and attach in chassis:
-            try:
-                star_path = nx.dijkstra_path(chassis, source=hpc_node, target=attach, weight="weight")
-                # FIXED arg order: (view, path, pos, pen, legend_label)
-                draw_path(view, star_path, pos,
-                          STAR_PEN if not star_added else pg.mkPen("#1565C0", width=2.5),
-                          legend_label="Star Path" if not star_added else None)
-                star_added = True
-            except Exception as e:
-                import logging
-                logging.getLogger(__name__).warning(f"Star path failed for {attach}: {e}")
-
-    # Ring: aggregators in a closed loop
-    for j in range(len(attach_nodes)):
-        src = attach_nodes[j]
-        dst = attach_nodes[(j + 1) % len(attach_nodes)]
-        if src == dst or src not in chassis or dst not in chassis:
-            continue
-        try:
-            ring_path = nx.dijkstra_path(chassis, source=src, target=dst, weight="weight")
-            draw_path(view, ring_path, pos,
-                      RING_PEN if not ring_added else pg.mkPen("#E65100", width=2, style=Qt.DashLine),
-                      legend_label="Ring Path" if not ring_added else None)
-            ring_added = True
-        except Exception as e:
-            import logging
-            logging.getLogger(__name__).warning(f"Ring segment failed {src}->{dst}: {e}")
+# Note: star and ring paths are no longer computed here.
+# main_window.WiringHarnessOptimizer._compute_star_topology /
+# _compute_ring_topology compute them on a bus_graph (chassis + EXT
+# split edges) so lengths automatically include EXT→chassis connector
+# segments and Dijkstra picks the optimal entry side. The mixin reads the
+# cached paths and calls draw_path() directly with STAR_PEN / RING_PEN.
 
 
 # ── View limits ────────────────────────────────────────────────────────────────

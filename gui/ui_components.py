@@ -144,13 +144,85 @@ class SortableTable(QTableWidget):
         self.setRowCount(0)
 
 
+class MetricsTable(QTableWidget):
+    """
+    Two-column read-only table (Metric | Value) for displaying key/value
+    pairs in a tabular layout instead of a free-form grid.
+
+    Section headers (rows where ``value`` is empty) are rendered with a
+    coloured background spanning both columns.
+    """
+
+    _HEADER_ROW_BG = QColor("#37474F")
+    _HEADER_ROW_FG = QColor("#FFFFFF")
+
+    def __init__(self, parent: QWidget = None):
+        super().__init__(parent)
+        self.setColumnCount(2)
+        self.setHorizontalHeaderLabels(["Metric", "Value"])
+        self.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.horizontalHeader().setStyleSheet(
+            f"QHeaderView::section {{"
+            f"background-color: {_HEADER_BG.name()};"
+            f"color: {_HEADER_FG.name()};"
+            f"padding: 4px; border: none; font-weight: bold; }}"
+        )
+        self.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.setAlternatingRowColors(True)
+        self.setStyleSheet("alternate-background-color: #F5F7F8;")
+        self.verticalHeader().setVisible(False)
+        self.setShowGrid(False)
+
+    def update_metrics(self, metrics: Dict[str, str]) -> None:
+        """Replace all rows. Empty-value rows render as section headers."""
+        self.setRowCount(len(metrics))
+        bold = QFont(); bold.setBold(True)
+
+        for r, (key, val) in enumerate(metrics.items()):
+            # Section header (no value)
+            if val == "" or val is None:
+                header_item = QTableWidgetItem(key.strip(" —"))
+                header_item.setBackground(self._HEADER_ROW_BG)
+                header_item.setForeground(self._HEADER_ROW_FG)
+                header_item.setFont(bold)
+                header_item.setTextAlignment(Qt.AlignCenter)
+                self.setItem(r, 0, header_item)
+                # Span both columns
+                self.setSpan(r, 0, 1, 2)
+                continue
+
+            key_item = QTableWidgetItem(key)
+            val_item = QTableWidgetItem(val)
+            # Sub-rows (indented in the formatter) get muted styling but
+            # everything is centered for a consistent tabular look.
+            if key.startswith("    "):
+                key_item.setForeground(QColor("#666"))
+            elif not key.startswith("  "):
+                key_item.setFont(bold)
+            key_item.setTextAlignment(Qt.AlignCenter)
+            val_item.setTextAlignment(Qt.AlignCenter)
+            self.setItem(r, 0, key_item)
+            self.setItem(r, 1, val_item)
+
+        self.resizeRowsToContents()
+
+    def clear_data(self) -> None:
+        self.setRowCount(0)
+
+
 class TopologyResultWidget(QWidget):
     """
-    Composite widget: plot view on top, scrollable metrics panel below.
+    Composite widget: plot view on the **left**, metrics table on the **right**.
 
-    The outer ``main_window`` accesses ``widget.plot_view`` directly for
-    visualization and calls ``widget.metrics_panel.update_metrics(...)``
-    to refresh the numbers.
+    Horizontal split (60/40) — the visualisation gets the wider portion, the
+    metrics table sits next to it without needing the user to drag a divider.
+
+    Outer code accesses ``widget.plot_view`` for visualisation and calls
+    ``widget.metrics_panel.update_metrics(dict)`` to refresh the numbers.
+    The attribute name ``metrics_panel`` is preserved for backward compat;
+    the widget behind it is now a ``MetricsTable``.
     """
 
     def __init__(self, plot_title: str, metrics_title: str, parent: QWidget = None):
@@ -158,24 +230,22 @@ class TopologyResultWidget(QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
 
-        splitter = QSplitter(Qt.Vertical, self)
+        splitter = QSplitter(Qt.Horizontal, self)
 
-        # Plot view
+        # Left: plot
         self.plot_view = pg.PlotWidget()
-
-        # Metrics in a scroll area so long key lists never hide the plot
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll.setMaximumHeight(200)
-
-        self.metrics_panel = MetricsPanel(metrics_title)
-        scroll.setWidget(self.metrics_panel)
-
         splitter.addWidget(self.plot_view)
-        splitter.addWidget(scroll)
-        splitter.setStretchFactor(0, 3)
-        splitter.setStretchFactor(1, 1)
+
+        # Right: titled metrics table inside a group box
+        right = QGroupBox(metrics_title)
+        right_layout = QVBoxLayout(right)
+        right_layout.setContentsMargins(6, 6, 6, 6)
+        self.metrics_panel = MetricsTable()
+        right_layout.addWidget(self.metrics_panel)
+        splitter.addWidget(right)
+
+        splitter.setStretchFactor(0, 6)   # plot
+        splitter.setStretchFactor(1, 4)   # metrics
+        splitter.setSizes([900, 500])     # initial sizes
 
         outer.addWidget(splitter)

@@ -136,11 +136,26 @@ class VisualizationMixin:
         renderer.draw_cluster_layer(view, clustering_results.get("clusters", {}), pos,
                                      self._get_cluster_colors())
         renderer.draw_bus_topology(view, clustering_results, pos)
-        renderer.draw_redundant_return(view, clustering_results, self.current_graph, pos)
+
+        # Redundant return path is precomputed in
+        # main_window.run_communication_network and cached on the host as
+        # ``redundant_return``. Drawn for strict disjoint paths and shared-route
+        # fallback paths.
+        return_info = getattr(self, "redundant_return", None)
+        if return_info and return_info.get("status") in {"ok", "shared_route_fallback"} and return_info.get("path"):
+            legend_label = (
+                "Redundant Return (edge-disjoint)"
+                if return_info.get("status") == "ok"
+                else "Redundant Return (shared route)"
+            )
+            renderer.draw_path(view, return_info["path"], pos,
+                               renderer.REDUNDANT_PEN,
+                               legend_label=legend_label)
+
         renderer.set_view_limits(view, pos)
 
     # ==================================================================
-    # Step 5c – Star & Ring
+    # Step 5c – Star and Ring
     # ==================================================================
     def _visualize_star_ring(self, view: pg.PlotWidget, clustering_results: Dict[str, Any]):
         if not clustering_results or not self.current_graph:
@@ -151,8 +166,25 @@ class VisualizationMixin:
                                   edge_alpha=0.2, node_alpha=0.3)
         renderer.draw_cluster_layer(view, clustering_results.get("clusters", {}), pos,
                                      self._get_cluster_colors(), draw_wiring=True)
-        hpc_node = self.config.get("node_configuration.hpc_node_name", "H1")
-        renderer.draw_star_ring_topology(view, clustering_results, self.current_graph, pos, hpc_node)
+
+        # Star and ring paths are precomputed in main_window.run_communication_network
+        # so the metric and the visual always match.
+        star_topo = getattr(self, "star_topology", None)
+        if star_topo:
+            first = True
+            for _ext_id, path in star_topo.get("paths", {}).items():
+                renderer.draw_path(view, path, pos, renderer.STAR_PEN,
+                                   legend_label="Star Path" if first else None)
+                first = False
+
+        ring_topo = getattr(self, "ring_topology", None)
+        if ring_topo:
+            first = True
+            for path in ring_topo.get("paths", []):
+                renderer.draw_path(view, path, pos, renderer.RING_PEN,
+                                   legend_label="Ring Path" if first else None)
+                first = False
+
         renderer.set_view_limits(view, pos)
 
     # ==================================================================

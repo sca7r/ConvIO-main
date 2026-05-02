@@ -100,7 +100,7 @@ def architecture_metrics(
 
     - Bus Topology         : ``{"CAN Bus": bus_len}``
     - Redundant Bus        : ``{"Forward Bus": bus_len, "Return Path": extra}``
-    - Star & Ring          : ``{"Star Paths": star_len, "Ring": ring_len}``
+    - Star and Ring        : ``{"Star Paths": star_len, "Ring": ring_len}``
     """
     if not clustering_results:
         return {}
@@ -128,10 +128,11 @@ def architecture_metrics(
     }
     for segment_name, segment_len in network_segments.items():
         result[f"    · {segment_name}"] = f"{segment_len:,.2f} mm"
-    result["  Cost"]           = f"{net_cost:,.2f} {cur}"
-    result["— Combined —"]     = ""
-    result["  Total Cost"]     = f"{wire_cost + net_cost:,.2f} {cur}"
-    result["  Total Weight"]   = f"{weight:,.3f} kg"
+    result["  Cost"]                  = f"{net_cost:,.2f} {cur}"
+    result["— Combined —"]            = ""
+    result["  Overall Wiring Length"] = f"{wire_len + net_total:,.2f} mm"
+    result["  Total Cost"]            = f"{wire_cost + net_cost:,.2f} {cur}"
+    result["  Total Weight"]          = f"{weight:,.3f} kg"
     return result
 
 
@@ -179,6 +180,72 @@ def summary_rows(
         (f"Est. Cost ({cur})",          _fmt(hpc_cost),     _fmt(opt_cost),       _pct(hpc_cost, opt_cost)),
         ("Est. Weight (kg)",            _fmt(hpc_wt, 3),    _fmt(opt_wt, 3),      _pct(hpc_wt, opt_wt)),
     ]
+
+
+def topology_comparison_rows(
+    clustering_results: Dict[str, Any],
+    topology_lengths: Dict[str, Dict[str, float]],
+    hpc_results: Optional[Dict],
+    cost_cfg: Dict[str, Any],
+) -> List[Tuple[str, str, str, str, str, str, str]]:
+    """
+    Rows for the Overall Summary table — one row per architecture.
+
+    Args:
+        clustering_results: The Step 4 result; provides the wiring harness length.
+        topology_lengths:   ``{topology_name: {"network_segments": {label: mm, ...}}}``.
+                            Keys must include "Bus Topology" (used as savings reference).
+        hpc_results:        Baseline result; used to compute saving vs. baseline.
+
+    Returns:
+        [(topology, harness_mm, network_mm, total_mm, cost, vs_baseline, vs_bus), ...]
+
+    Sorted with Baseline first (if present), then topologies by total ascending.
+    """
+    p_m  = cost_cfg.get("wire_price_per_m", 0.0)
+    cp_m = cost_cfg.get("CAN_bus_price_per_m", 0.0)
+    cur  = cost_cfg.get("currency", "")
+
+    rows: List[Tuple] = []
+
+    # Baseline row (no clusters, no network — direct HPC)
+    if hpc_results:
+        hpc_len = hpc_results.get("total_length", 0.0)
+        rows.append((
+            "Baseline (Direct HPC)",
+            _fmt(hpc_len), "—", _fmt(hpc_len),
+            f"{_m(hpc_len) * p_m:.2f} {cur}",
+            "—", "—",
+        ))
+
+    if not clustering_results or not topology_lengths:
+        return rows
+
+    wire_len = clustering_results.get("total_wire_length", 0.0)
+    hpc_total = hpc_results.get("total_length", 0.0) if hpc_results else 0.0
+
+    # Bus topology total acts as the "vs Bus Topology" reference
+    bus_segments = topology_lengths.get("Bus Topology", {}).get("network_segments", {})
+    bus_network_total = sum(bus_segments.values())
+    bus_total = wire_len + bus_network_total
+
+    topology_rows: List[Tuple] = []
+    for topo_name, info in topology_lengths.items():
+        net_total = sum(info.get("network_segments", {}).values())
+        total     = wire_len + net_total
+        cost      = _m(wire_len) * p_m + _m(net_total) * cp_m
+        topology_rows.append((
+            topo_name,
+            _fmt(wire_len), _fmt(net_total), _fmt(total),
+            f"{cost:.2f} {cur}",
+            _pct(hpc_total, total) if hpc_total > 0 else "—",
+            _pct(bus_total, total) if bus_total > 0 else "—",
+        ))
+
+    # Sort topologies by total length ascending
+    topology_rows.sort(key=lambda r: float(r[3]))
+    rows.extend(topology_rows)
+    return rows
 
 
 def cluster_breakdown_rows(

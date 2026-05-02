@@ -10,7 +10,7 @@ Workflow (left control panel):
   —       Baseline Wiring        (direct HPC, comparison reference)
   Step 3  Agglomerative Clust.   (raw I/O assignments, no optimisation)
   Step 4  Iterative Optimisation (centroid refinement + iteration table)
-  Step 5  Communication Network  (Bus / Redundant Bus / Star & Ring)
+  Step 5  Communication Network  (Bus / Redundant Bus / Star and Ring)
           Results                (summary + per-cluster + linkage comparison)
 
 Scaling fix: step groups live in a QScrollArea; topology tabs are
@@ -42,7 +42,7 @@ from modules.graph_utils import get_graph_statistics, validate_graph
 from modules.report_generator import ReportGenerator
 from gui import renderer
 from gui import results_formatter as rf
-from gui.dialogs import ComparisonWindow
+from gui.dialogs import ComparisonWindow, CostSettingsDialog
 from gui.ui_components import MetricsPanel, SortableTable, TopologyResultWidget
 from gui.visualization import VisualizationMixin
 from gui.widgets import MatplotlibWidget
@@ -76,6 +76,7 @@ class WiringHarnessOptimizer(VisualizationMixin, QMainWindow):
         self.clustering_results:        Optional[Dict[str, Any]] = None
         self.hpc_results:               Optional[Dict[str, Any]] = None
         self.all_linkage_results:       Optional[Dict[str, Any]] = None  # full_analysis sweep
+        self.topology_lengths:          Dict[str, Dict[str, Any]] = {}    # set by run_communication_network
         self.chassis_file_path:         Optional[str]            = None
         self.io_file_path:              Optional[str]            = None
 
@@ -138,7 +139,10 @@ class WiringHarnessOptimizer(VisualizationMixin, QMainWindow):
         file_menu.addSeparator()
         act = QAction("Exit", self); act.triggered.connect(self.close)
         file_menu.addAction(act)
-        menubar.addMenu("Tools")
+        tools_menu = menubar.addMenu("Tools")
+        act_costs  = QAction("Cost && Weight Settings…", self)
+        act_costs.triggered.connect(self.show_cost_settings)
+        tools_menu.addAction(act_costs)
         help_menu = menubar.addMenu("Help")
         act = QAction("About", self); act.triggered.connect(self.show_about_dialog)
         help_menu.addAction(act)
@@ -288,7 +292,7 @@ class WiringHarnessOptimizer(VisualizationMixin, QMainWindow):
         return g
 
     def _build_comparison_group(self) -> QGroupBox:
-        g = QGroupBox("Comparison Summary")
+        g = QGroupBox("Bus Topology vs Baseline")
         lay = QVBoxLayout(g)
         self.comparison_length_saving_label = QLabel("Length Saving: —")
         self.comparison_cost_saving_label   = QLabel("Cost Saving: —")
@@ -296,6 +300,9 @@ class WiringHarnessOptimizer(VisualizationMixin, QMainWindow):
         for w in (self.comparison_length_saving_label, self.comparison_cost_saving_label,
                   self.comparison_weight_saving_label):
             lay.addWidget(w)
+        hint = QLabel("<i>See Results tab for all-topology comparison.</i>")
+        hint.setStyleSheet("color: #666; font-size: 10px;")
+        lay.addWidget(hint)
         return g
 
     def _build_log_group(self) -> QGroupBox:
@@ -335,11 +342,11 @@ class WiringHarnessOptimizer(VisualizationMixin, QMainWindow):
         renderer.setup_view(self.initial_cluster_view, "Initial Clustering")
         self.tab_widget.addTab(self.initial_cluster_view, "③ Initial Clustering")
 
-        # ④ Centroid Optimisation  (plot + iteration table)
+        # ④ Centroid Optimisation  (plot left, iteration table right)
         self.optim_tab = QWidget()
-        optim_layout   = QVBoxLayout(self.optim_tab)
+        optim_layout   = QHBoxLayout(self.optim_tab)
         optim_layout.setContentsMargins(0, 0, 0, 0)
-        optim_splitter = QSplitter(Qt.Vertical)
+        optim_splitter = QSplitter(Qt.Horizontal)
 
         self.optim_view = pg.PlotWidget()
         renderer.setup_view(self.optim_view, "Centroid Optimisation")
@@ -350,14 +357,14 @@ class WiringHarnessOptimizer(VisualizationMixin, QMainWindow):
         iter_layout.setContentsMargins(4, 4, 4, 4)
         iter_layout.addWidget(QLabel("<b>Iteration Progress</b>"))
         self.iteration_table = SortableTable(
-            ["Iteration", "I/O Reassignments", "Total Wire Length (mm)"]
+            ["Iteration", "I/O Reassignments", "Total Wire Length (mm)", "Δ vs Previous (mm)"]
         )
-        self.iteration_table.setMaximumHeight(160)
         iter_layout.addWidget(self.iteration_table)
         optim_splitter.addWidget(iter_container)
 
-        optim_splitter.setStretchFactor(0, 3)
-        optim_splitter.setStretchFactor(1, 1)
+        optim_splitter.setStretchFactor(0, 6)
+        optim_splitter.setStretchFactor(1, 4)
+        optim_splitter.setSizes([900, 500])
         optim_layout.addWidget(optim_splitter)
         self.tab_widget.addTab(self.optim_tab, "④ Centroid Optimisation")
 
@@ -373,11 +380,11 @@ class WiringHarnessOptimizer(VisualizationMixin, QMainWindow):
         renderer.setup_view(self.redundant_bus_view, "⑤ Redundant Bus Topology")
         self.tab_widget.addTab(self.redundant_bus_topo, "⑤ Redundant Bus")
 
-        # ⑤ Star & Ring
-        self.star_ring_topo = TopologyResultWidget("Star & Ring", "Star & Ring Metrics")
+        # ⑤ Star and Ring
+        self.star_ring_topo = TopologyResultWidget("Star and Ring", "Star and Ring Metrics")
         self.star_ring_view = self.star_ring_topo.plot_view
-        renderer.setup_view(self.star_ring_view, "⑤ Star & Ring Topology")
-        self.tab_widget.addTab(self.star_ring_topo, "⑤ Star & Ring")
+        renderer.setup_view(self.star_ring_view, "⑤ Star and Ring Topology")
+        self.tab_widget.addTab(self.star_ring_topo, "⑤ Star and Ring")
 
         # Results tab
         self.results_tab = self._build_results_tab()
@@ -395,12 +402,17 @@ class WiringHarnessOptimizer(VisualizationMixin, QMainWindow):
         lay    = QVBoxLayout(inner)
         lay.setSpacing(10)
 
-        # Summary
-        lay.addWidget(self._section_header("Overall Summary"))
-        self.results_summary_table = SortableTable(
-            ["Metric", "Baseline", "Optimised (incl. CAN)", "Saving"]
-        )
-        self.results_summary_table.setSortingEnabled(False)
+        # Topology comparison summary
+        lay.addWidget(self._section_header("Architecture Comparison Summary"))
+        lay.addWidget(QLabel(
+            "All lengths in mm. 'Saving vs Baseline' compares to direct HPC wiring; "
+            "'Saving vs Bus' compares to the simple Bus Topology."
+        ))
+        cur = self.cost_cfg["currency"]
+        self.results_summary_table = SortableTable([
+            "Architecture", "Wiring Harness", "Network Cable", "Total",
+            f"Cost ({cur})", "Saving vs Baseline", "Saving vs Bus",
+        ])
         lay.addWidget(self.results_summary_table)
 
         # Per-cluster breakdown
@@ -414,10 +426,10 @@ class WiringHarnessOptimizer(VisualizationMixin, QMainWindow):
         lay.addWidget(self._section_header("Linkage Method Comparison"))
         lay.addWidget(QLabel(
             "Run 'Compare All Linkage Methods' in Step 3 to populate this table.",
-            objectName="hint_label"
         ))
         self.linkage_table = SortableTable(
-            ["Linkage", "Wire (mm)", "CAN (mm)", "Total (mm)", f"Cost ({self.cost_cfg['currency']})", "Saving vs Baseline"]
+            ["Linkage", "Wire (mm)", "CAN (mm)", "Total (mm)",
+             f"Cost ({cur})", "Saving vs Baseline"]
         )
         lay.addWidget(self.linkage_table)
         lay.addStretch()
@@ -481,6 +493,7 @@ class WiringHarnessOptimizer(VisualizationMixin, QMainWindow):
         self._start_worker(
             "full_analysis", graph=self.current_graph,
             n_clusters=self.n_clusters_spin.value(),
+            max_iterations=self.n_iterations_spin.value(),
             on_finish=self.on_linkage_comparison_completed,
             show_progress=True,
         )
@@ -503,40 +516,39 @@ class WiringHarnessOptimizer(VisualizationMixin, QMainWindow):
             QMessageBox.warning(self, "No data", "Run Step 4 first.")
             return
 
-        bus_len       = self.clustering_results.get("can_bus", {}).get("total_length", 0.0)
-        redundant_len = self._compute_redundant_extra_length()
-        star_len      = self._compute_star_length()
-        ring_len      = self._compute_ring_length()
+        bus_len = self.clustering_results.get("can_bus", {}).get("total_length", 0.0)
+
+        # Edge-disjoint return — cached for the renderer to reuse.
+        self.redundant_return = self._compute_redundant_return()
+        redundant_len = self.redundant_return["total_length"]
+
+        # Star and Ring — also precomputed and cached so visualisation
+        # uses the exact same paths the metrics report.
+        self.star_topology = self._compute_star_topology()
+        self.ring_topology = self._compute_ring_topology()
+        star_len = self.star_topology["total_length"]
+        ring_len = self.ring_topology["total_length"]
+
+        # Cache segment dicts so the Results tab can build the architecture
+        # comparison table.  Keys must match the labels passed to
+        # update_metrics() below so _build_topology_metrics can find them.
+        self.topology_lengths = {
+            "Bus Topology":   {"network_segments": {"CAN Bus": bus_len}},
+            "Redundant Bus":  {"network_segments": {"Forward Bus": bus_len, "Return Path": redundant_len}},
+            "Star and Ring":  {"network_segments": {"Star Paths": star_len, "Ring": ring_len}},
+        }
 
         # ⑤ Bus Topology
         self._visualize_clustering_results(self.cluster_view, self.clustering_results)
-        self.bus_topo.metrics_panel.update_metrics(
-            rf.architecture_metrics(
-                "Bus Topology", self.clustering_results,
-                {"CAN Bus": bus_len},
-                self.cost_cfg,
-            )
-        )
+        self.bus_topo.metrics_panel.update_metrics(self._build_topology_metrics("Bus Topology"))
 
         # ⑤ Redundant Bus
         self._visualize_redundant_bus(self.redundant_bus_view, self.clustering_results)
-        self.redundant_bus_topo.metrics_panel.update_metrics(
-            rf.architecture_metrics(
-                "Redundant Bus", self.clustering_results,
-                {"Forward Bus": bus_len, "Return Path": redundant_len},
-                self.cost_cfg,
-            )
-        )
+        self.redundant_bus_topo.metrics_panel.update_metrics(self._build_topology_metrics("Redundant Bus"))
 
-        # ⑤ Star & Ring
+        # ⑤ Star and Ring
         self._visualize_star_ring(self.star_ring_view, self.clustering_results)
-        self.star_ring_topo.metrics_panel.update_metrics(
-            rf.architecture_metrics(
-                "Star & Ring", self.clustering_results,
-                {"Star Paths": star_len, "Ring": ring_len},
-                self.cost_cfg,
-            )
-        )
+        self.star_ring_topo.metrics_panel.update_metrics(self._build_topology_metrics("Star and Ring"))
 
         self._update_comm_labels()
         if self.hpc_results:
@@ -546,120 +558,298 @@ class WiringHarnessOptimizer(VisualizationMixin, QMainWindow):
         self.log(
             f"Communication network rendered. "
             f"Bus: {bus_len:,.0f} mm  |  "
-            f"Redundant return: {redundant_len:,.0f} mm  |  "
+            f"Redundant return: {redundant_len:,.0f} mm ({self.redundant_return['status']})  |  "
             f"Star: {star_len:,.0f} mm  Ring: {ring_len:,.0f} mm"
         )
+
+    def _build_topology_metrics(self, topology_label: str) -> dict:
+        """
+        Build the metrics dict for a topology tab, including any annotations
+        specific to that topology (e.g. Redundant Bus gets a status row).
+
+        Used by both ``run_communication_network`` (initial render) and
+        ``show_cost_settings`` (refresh after cost edit) so the annotations
+        survive a settings change.
+        """
+        info     = self.topology_lengths.get(topology_label, {})
+        segments = info.get("network_segments", {})
+        metrics  = rf.architecture_metrics(
+            topology_label, self.clustering_results, segments, self.cost_cfg,
+        )
+        # Redundancy status row for the Redundant Bus tab
+        if topology_label == "Redundant Bus" and getattr(self, "redundant_return", None):
+            status = self.redundant_return.get("status", "unavailable")
+            status_text = {
+                "ok":               "✓ Edge-disjoint",
+                "shared_route_fallback": "⚠ Shared route fallback",
+                "no_disjoint_path": "✗ No return route available",
+                "unavailable":      "—",
+            }.get(status, "—")
+            metrics["  Redundancy"] = status_text
+        return metrics
 
     # ==================================================================
     # Topology length helpers (for metrics only, not re-drawing)
     # ==================================================================
-    def _compute_redundant_extra_length(self) -> float:
+    def _compute_redundant_return(self) -> dict:
         """
-        Dijkstra length of the return path: last aggregator attachment → HPC.
+        Compute the redundant return path from the last bus aggregator back
+        to HPC, including the EXT→chassis connector segment.
 
-        can_bus["path"] = [HPC, EXT_0, EXT_1, ...]. EXT_ nodes live only in
-        G_out (the exported graph), not in self.current_graph. We resolve the
-        last EXT_ node to its chassis attachment point via the cluster centroid.
+        Strategy
+        --------
+        1. Identify the last EXT aggregator on the forward bus path and the
+           chassis node it was reached through (``forward_entry_chassis``).
+        2. For an edge-centroid aggregator, deliberately exit via the
+           **other** chassis endpoint (the unused split edge) so even the
+           EXT→chassis hop is not shared with the forward bus.
+        3. Build a chassis subgraph minus every chassis edge used by the
+           forward bus path, then run Dijkstra from the chosen return start
+           back to HPC.
+        4. If no edge-disjoint path exists, fall back to the normal chassis
+           shortest path so the redundant cable may share the same route.
+        5. Total return length = chassis Dijkstra length + connector length.
+
+        If no chassis path exists even with shared routes allowed, status is
+        set to ``no_disjoint_path``, length = 0, and the renderer will draw
+        nothing.
+
+        Returns:
+            dict with keys
+              path             — chassis-only return path nodes (or [])
+              chassis_length   — Dijkstra length on chassis (mm)
+              connector_length — t·edge_len for edge-centroid, 0 otherwise
+              total_length     — chassis_length + connector_length
+              status           — 'ok' | 'shared_route_fallback' |
+                                 'no_disjoint_path' | 'unavailable'
         """
         import networkx as nx
+
+        none_result = {
+            "path": [], "chassis_length": 0.0, "connector_length": 0.0,
+            "total_length": 0.0, "status": "unavailable",
+        }
         if not (self.clustering_results and self.current_graph):
-            return 0.0
+            return none_result
+
         can_path = self.clustering_results.get("can_bus", {}).get("path", [])
         if len(can_path) < 2:
-            return 0.0
+            return none_result
 
         chassis_nodes = set(n for n, d in self.current_graph.nodes(data=True) if not d.get("is_io"))
-        chassis       = self.current_graph.subgraph(chassis_nodes).copy()
-        first         = can_path[0]   # HPC node — always in chassis
-        if first not in chassis_nodes:
-            return 0.0
+        chassis = self.current_graph.subgraph(chassis_nodes).copy()
+        hpc = can_path[0]
+        if hpc not in chassis_nodes:
+            return none_result
 
-        # Resolve last EXT_ → chassis attachment via centroid
-        last_node = can_path[-1]
-        last_attach = self._resolve_to_chassis_attach(last_node, chassis_nodes)
-        if not last_attach or last_attach == first:
-            return 0.0
-        try:
-            return nx.dijkstra_path_length(chassis, last_attach, first, weight="weight")
-        except Exception as e:
-            self.logger.warning(f"Redundant return length failed: {e}")
-            return 0.0
+        # ── 1. Last EXT and the chassis node forward bus reached it through
+        last_ext = can_path[-1]
+        forward_entry_chassis = None
+        for n in reversed(can_path):
+            if n in chassis_nodes:
+                forward_entry_chassis = n
+                break
+        if forward_entry_chassis is None:
+            return none_result
 
-    def _resolve_to_chassis_attach(self, node_name: str, chassis_nodes: set) -> str:
+        # ── 2. Resolve return start chassis node + connector length
+        suffix   = last_ext.split("_")[-1]
+        centroid = (self.clustering_results.get("clusters", {})
+                    .get(f"cluster_{suffix}", {})
+                    .get("centroid"))
+
+        return_start    = forward_entry_chassis  # default for node-centroid
+        connector_length = 0.0
+        if centroid:
+            ctype = centroid.get("type")
+            if ctype == "node":
+                # Aggregator sits at a chassis node — single connection,
+                # no connector length, no choice.
+                return_start    = centroid["node"]
+                connector_length = 0.0
+            elif ctype == "edge":
+                u, v, t = centroid["u"], centroid["v"], centroid.get("t", 0.5)
+                edge_len = (self.current_graph.edges[u, v].get("weight", 1.0)
+                            if self.current_graph.has_edge(u, v) else 0.0)
+                # Use the OTHER chassis endpoint than forward bus did.
+                # Connector for u side has weight t·edge_len, for v side (1-t)·edge_len.
+                if forward_entry_chassis == u:
+                    return_start, connector_length = v, (1 - t) * edge_len
+                else:
+                    return_start, connector_length = u, t * edge_len
+
+        # ── 3. Chassis subgraph minus all forward chassis edges
+        forward_chassis_edges: set = set()
+        for i in range(len(can_path) - 1):
+            a, b = can_path[i], can_path[i + 1]
+            if a in chassis_nodes and b in chassis_nodes:
+                forward_chassis_edges.add(frozenset([a, b]))
+
+        disjoint = chassis.copy()
+        for edge in forward_chassis_edges:
+            ab = list(edge)
+            if len(ab) == 2 and disjoint.has_edge(ab[0], ab[1]):
+                disjoint.remove_edge(ab[0], ab[1])
+
+        def build_result(graph, status: str) -> dict | None:
+            try:
+                return_path    = nx.dijkstra_path(graph, return_start, hpc, weight="weight")
+                chassis_length = nx.dijkstra_path_length(graph, return_start, hpc, weight="weight")
+            except (nx.NetworkXNoPath, nx.NodeNotFound):
+                return None
+
+            return {
+                "path":             return_path,
+                "chassis_length":   float(chassis_length),
+                "connector_length": float(connector_length),
+                "total_length":     float(chassis_length + connector_length),
+                "status":           status,
+            }
+
+        # ── 4. Prefer Dijkstra from return_start to HPC on the disjoint graph
+        disjoint_result = build_result(disjoint, "ok")
+        if disjoint_result:
+            return disjoint_result
+
+        # ── 5. Fallback: use a separate cable that may share chassis route
+        shared_result = build_result(chassis, "shared_route_fallback")
+        if shared_result:
+            return shared_result
+
+        return {**none_result, "connector_length": connector_length,
+                "status": "no_disjoint_path"}
+
+    def _build_bus_graph(self):
         """
-        Given any node name (chassis or EXT_ aggregator), return its chassis
-        attachment point.  For EXT_N, look up cluster_N's centroid.
-        """
-        if node_name in chassis_nodes:
-            return node_name
-        # EXT_N → cluster_N
-        clusters = self.clustering_results.get("clusters", {})
-        suffix   = node_name.split("_")[-1]
-        cdata    = clusters.get(f"cluster_{suffix}")
-        if not cdata:
-            return None
-        centroid = cdata.get("centroid")
-        if not centroid:
-            return None
-        if centroid["type"] == "node":
-            return centroid["node"]
-        # edge centroid: pick the closer endpoint
-        return centroid["u"] if centroid.get("t", 0.5) <= 0.5 else centroid["v"]
+        Build chassis subgraph augmented with EXT_ aggregator virtual nodes
+        and their connector edges, mirroring how
+        ``ClusteringDijkstra._format_and_export_output`` constructs ``G_out``.
 
-    def _compute_star_length(self) -> float:
-        """Sum of HPC → each aggregator-attachment shortest-path lengths."""
+        For each cluster centroid:
+          - node-centroid: 0-weight edge from EXT to the centroid node
+          - edge-centroid: t·edge_len edge to u, (1-t)·edge_len edge to v
+
+        Dijkstra on this graph automatically picks the optimal entry side
+        and includes the EXT→chassis connector — identical behaviour to
+        the forward bus path computation.
+        """
         import networkx as nx
-        if not (self.clustering_results and self.current_graph):
-            return 0.0
-        hpc_node      = self.config.get("node_configuration.hpc_node_name", "H1")
-        chassis_nodes = set(n for n, d in self.current_graph.nodes(data=True) if not d.get("is_io"))
-        chassis       = self.current_graph.subgraph(chassis_nodes).copy()
-        if hpc_node not in chassis:
-            return 0.0
-        total = 0.0
+        chassis_nodes = [n for n, d in self.current_graph.nodes(data=True) if not d.get("is_io")]
+        bus = self.current_graph.subgraph(chassis_nodes).copy()
+        if not self.clustering_results:
+            return bus
+
         for cid, cdata in self.clustering_results.get("clusters", {}).items():
             if cid == "can_bus":
                 continue
             centroid = cdata.get("centroid")
             if not centroid:
                 continue
-            attach = (centroid["node"] if centroid["type"] == "node"
-                      else (centroid["u"] if centroid.get("t", 0.5) <= 0.5 else centroid["v"]))
-            if attach in chassis:
-                try:
-                    total += nx.dijkstra_path_length(chassis, hpc_node, attach, weight="weight")
-                except Exception:
-                    pass
-        return total
+            ext_id = f"EXT_{cid.split('_')[-1]}"
+            bus.add_node(ext_id, pos=centroid.get("pos"))
 
-    def _compute_ring_length(self) -> float:
-        """Sum of Dijkstra lengths connecting aggregator attachments in a closed loop."""
+            if centroid.get("type") == "node":
+                target = centroid.get("node")
+                if target in bus:
+                    bus.add_edge(ext_id, target, weight=0.0)
+            elif centroid.get("type") == "edge":
+                u, v, t = centroid["u"], centroid["v"], centroid.get("t", 0.5)
+                if not self.current_graph.has_edge(u, v):
+                    continue
+                edge_len = self.current_graph.edges[u, v].get("weight", 1.0)
+                if u in bus:
+                    bus.add_edge(ext_id, u, weight=t * edge_len)
+                if v in bus:
+                    bus.add_edge(ext_id, v, weight=(1 - t) * edge_len)
+        return bus
+
+    def _compute_star_topology(self) -> dict:
+        """
+        Star: HPC connects directly to each aggregator via shortest cable.
+
+        Uses ``_build_bus_graph`` so length includes EXT→chassis connectors
+        and the entry side is chosen by Dijkstra (not by ``t`` alone).
+
+        Returns:
+            ``{"paths": {ext_id: [chassis_path]}, "total_length": float}``
+        """
         import networkx as nx
+        result = {"paths": {}, "total_length": 0.0}
         if not (self.clustering_results and self.current_graph):
-            return 0.0
-        chassis_nodes = set(n for n, d in self.current_graph.nodes(data=True) if not d.get("is_io"))
-        chassis       = self.current_graph.subgraph(chassis_nodes).copy()
-        attach_nodes  = []
-        for cid, cdata in self.clustering_results.get("clusters", {}).items():
-            if cid == "can_bus":
-                continue
-            centroid = cdata.get("centroid")
-            if not centroid:
-                continue
-            attach = (centroid["node"] if centroid["type"] == "node"
-                      else (centroid["u"] if centroid.get("t", 0.5) <= 0.5 else centroid["v"]))
-            attach_nodes.append(attach)
+            return result
+        bus = self._build_bus_graph()
+        hpc = self.config.get("node_configuration.hpc_node_name", "H1")
+        if hpc not in bus:
+            return result
+
         total = 0.0
-        for j in range(len(attach_nodes)):
-            src = attach_nodes[j]
-            dst = attach_nodes[(j + 1) % len(attach_nodes)]
-            if src == dst or src not in chassis or dst not in chassis:
+        for cid, cdata in self.clustering_results.get("clusters", {}).items():
+            if cid == "can_bus" or not cdata.get("centroid"):
+                continue
+            ext_id = f"EXT_{cid.split('_')[-1]}"
+            if ext_id not in bus:
                 continue
             try:
-                total += nx.dijkstra_path_length(chassis, src, dst, weight="weight")
-            except Exception:
-                pass
-        return total
+                length    = nx.dijkstra_path_length(bus, hpc, ext_id, weight="weight")
+                full_path = nx.dijkstra_path(bus, hpc, ext_id, weight="weight")
+            except (nx.NetworkXNoPath, nx.NodeNotFound):
+                continue
+            # Strip EXT_ nodes for visualisation (they don't have positions
+            # in current_graph; the aggregator marker is drawn separately).
+            chassis_path = [n for n in full_path if not n.startswith("EXT_")]
+            result["paths"][ext_id] = chassis_path
+            total += length
+        result["total_length"] = total
+        return result
+
+    def _compute_ring_topology(self) -> dict:
+        """
+        Ring: aggregators connected in a closed loop (cluster-id insertion order).
+
+        Uses ``_build_bus_graph`` so each segment includes both EXT→chassis
+        connectors and uses optimal entry sides.
+
+        Note: the ring direction is the iteration order of the clusters dict
+        — not TSP-optimal. A different ordering could yield a shorter ring.
+
+        Returns:
+            ``{"paths": [[chassis_path], ...], "total_length": float}``
+        """
+        import networkx as nx
+        result = {"paths": [], "total_length": 0.0}
+        if not (self.clustering_results and self.current_graph):
+            return result
+        bus = self._build_bus_graph()
+
+        ext_ids = []
+        for cid, cdata in self.clustering_results.get("clusters", {}).items():
+            if cid == "can_bus" or not cdata.get("centroid"):
+                continue
+            ext_id = f"EXT_{cid.split('_')[-1]}"
+            if ext_id in bus:
+                ext_ids.append(ext_id)
+        if len(ext_ids) < 2:
+            return result
+
+        total = 0.0
+        paths = []
+        for i in range(len(ext_ids)):
+            src = ext_ids[i]
+            dst = ext_ids[(i + 1) % len(ext_ids)]
+            if src == dst:
+                continue
+            try:
+                length    = nx.dijkstra_path_length(bus, src, dst, weight="weight")
+                full_path = nx.dijkstra_path(bus, src, dst, weight="weight")
+            except (nx.NetworkXNoPath, nx.NodeNotFound):
+                continue
+            chassis_path = [n for n in full_path if not n.startswith("EXT_")]
+            if chassis_path:
+                paths.append(chassis_path)
+            total += length
+        result["paths"] = paths
+        result["total_length"] = total
+        return result
 
     # ==================================================================
     # Worker factory
@@ -740,13 +930,11 @@ class WiringHarnessOptimizer(VisualizationMixin, QMainWindow):
 
     def on_optimization_completed(self, results):
         self.clustering_results = results
+        self._invalidate_communication_network_results()
         self._unlock_controls()
         if self.clustering_results:
             self._update_optim_labels()
-            self.iteration_table.populate(
-                [(r["iteration"], r["assignments_changed"], f'{r["total_wire_length"]:.2f}')
-                 for r in results.get("iteration_results", [])]
-            )
+            self.iteration_table.populate(self._format_iteration_rows(results))
             self._visualize_clustering_results(self.optim_view, self.clustering_results)
             self.tab_widget.setCurrentWidget(self.optim_tab)
         if self.hpc_results:
@@ -763,6 +951,7 @@ class WiringHarnessOptimizer(VisualizationMixin, QMainWindow):
         best_row = next((i for i, r in enumerate(rows) if r[0] == best), None)
         self.linkage_table.populate(rows, best_row=best_row)
         if best and best in self.all_linkage_results:
+            self.linkage_combo.setCurrentText(best)
             # Apply best result but don't let it switch to the optim tab;
             # we want Results tab to stay visible after the dialog closes.
             self._apply_clustering_result(self.all_linkage_results[best])
@@ -772,16 +961,23 @@ class WiringHarnessOptimizer(VisualizationMixin, QMainWindow):
     def _apply_clustering_result(self, results: dict):
         """Store and reflect a clustering result without switching tabs."""
         self.clustering_results = results
+        self._invalidate_communication_network_results()
         if self.clustering_results:
             self._update_optim_labels()
-            self.iteration_table.populate(
-                [(r["iteration"], r["assignments_changed"], f'{r["total_wire_length"]:.2f}')
-                 for r in results.get("iteration_results", [])]
-            )
+            self.iteration_table.populate(self._format_iteration_rows(results))
             self._visualize_clustering_results(self.optim_view, self.clustering_results)
         if self.hpc_results:
             self._compare_results()
         self.comm_network_btn.setEnabled(True)
+
+    def _invalidate_communication_network_results(self):
+        """Clear topology results derived from an older clustering run."""
+        self.topology_lengths = {}
+        self.redundant_return = None
+        self.star_topology = None
+        self.ring_topology = None
+        if hasattr(self, "results_summary_table"):
+            self.results_summary_table.clear_data()
 
     def on_error(self, error_message: str):
         self._unlock_controls()
@@ -799,6 +995,26 @@ class WiringHarnessOptimizer(VisualizationMixin, QMainWindow):
         self.optim_total_label.setText(f"I/O Wire Length: {total:,.2f} mm")
         self.optim_cost_label.setText(f"Cost: {(total/1000)*p_m:,.2f} {cur}")
         self.optim_weight_label.setText(f"Weight: {(total/1000)*w_m:,.3f} kg")
+
+    def _format_iteration_rows(self, results: dict) -> list:
+        """
+        Convert iteration_results from the worker into table rows.
+
+        Renders the delta column with a sign prefix (+/-). The first
+        iteration is compared against the initial agglomerative baseline.
+        """
+        rows = []
+        for r in results.get("iteration_results", []):
+            delta = r.get("delta_vs_previous", 0.0)
+            iteration = r["iteration"]
+            delta_str = f"{delta:+,.2f}"
+            rows.append((
+                iteration,
+                r["assignments_changed"],
+                f'{r["total_wire_length"]:,.2f}',
+                delta_str,
+            ))
+        return rows
 
     def _update_comm_labels(self):
         wire  = self.clustering_results.get("total_wire_length", 0.0)
@@ -835,10 +1051,29 @@ class WiringHarnessOptimizer(VisualizationMixin, QMainWindow):
         self.log(f"  Comparison – Length: {pct(hpc_l,opt_l)}  Cost: {pct(hpc_c,opt_c)}")
 
     def _update_results_tables(self):
-        # Summary
-        rows = rf.summary_rows(self.hpc_results, self.clustering_results, self.cost_cfg)
-        self.results_summary_table.populate(rows, center_cols=[1, 2, 3])
-        # Per-cluster
+        """Refresh the Architecture Comparison and Per-Cluster tables."""
+        # Architecture comparison — populated only once Step 5 has been run
+        if self.topology_lengths:
+            rows = rf.topology_comparison_rows(
+                self.clustering_results, self.topology_lengths,
+                self.hpc_results, self.cost_cfg,
+            )
+            # Find best (lowest total) row to highlight
+            best_row = None
+            best_total = float("inf")
+            for i, r in enumerate(rows):
+                if r[0] == "Baseline (Direct HPC)":
+                    continue
+                try:
+                    total = float(r[3])
+                    if total < best_total:
+                        best_total, best_row = total, i
+                except (ValueError, IndexError):
+                    pass
+            self.results_summary_table.populate(rows, best_row=best_row,
+                                                 center_cols=[1, 2, 3, 4, 5, 6])
+
+        # Per-cluster breakdown
         cluster_rows = rf.cluster_breakdown_rows(self.clustering_results, self.cost_cfg)
         self.results_cluster_table.populate(cluster_rows)
         # Linkage table is populated in on_linkage_comparison_completed
@@ -948,6 +1183,54 @@ class WiringHarnessOptimizer(VisualizationMixin, QMainWindow):
     # ==================================================================
     # Misc
     # ==================================================================
+    def show_cost_settings(self):
+        """Open the cost/weight settings dialog and apply changes live."""
+        dlg = CostSettingsDialog(self.cost_cfg, self)
+        if dlg.exec_() != dlg.Accepted:
+            return
+        self.cost_cfg = dlg.get_settings()
+        self.log(
+            f"Cost settings updated — wire: {self.cost_cfg['wire_price_per_m']:.3f}/m, "
+            f"CAN: {self.cost_cfg['CAN_bus_price_per_m']:.3f}/m, "
+            f"weight: {self.cost_cfg['wire_weight_per_m_kg']:.4f} kg/m  "
+            f"({self.cost_cfg['currency']})"
+        )
+
+        # Refresh every display that uses cost_cfg
+        if self.hpc_results:
+            total = self.hpc_results.get("total_length", 0.0)
+            p_m   = self.cost_cfg["wire_price_per_m"]
+            w_m   = self.cost_cfg["wire_weight_per_m_kg"]
+            cur   = self.cost_cfg["currency"]
+            self.hpc_total_label.setText(f"Total Length: {total:,.2f} mm")
+            self.hpc_cost_label.setText(f"Cost: {(total/1000)*p_m:,.2f} {cur}")
+            self.hpc_weight_label.setText(f"Weight: {(total/1000)*w_m:,.3f} kg")
+            self.hpc_topo.metrics_panel.update_metrics(
+                rf.baseline_metrics(self.hpc_results, self.cost_cfg)
+            )
+        if self.clustering_results:
+            self._update_optim_labels()
+            self._update_comm_labels()
+            if self.hpc_results:
+                self._compare_results()
+            # Re-apply topology metrics if Step 5 was already run
+            if self.topology_lengths:
+                panels = {
+                    "Bus Topology":  self.bus_topo.metrics_panel,
+                    "Redundant Bus": self.redundant_bus_topo.metrics_panel,
+                    "Star and Ring": self.star_ring_topo.metrics_panel,
+                }
+                for label, panel in panels.items():
+                    if label in self.topology_lengths:
+                        panel.update_metrics(self._build_topology_metrics(label))
+            self._update_results_tables()
+        # Linkage table needs recompute too
+        if self.all_linkage_results:
+            rows = rf.linkage_comparison_rows(
+                self.all_linkage_results, self.hpc_results, self.cost_cfg,
+            )
+            self.linkage_table.populate(rows)
+
     def show_about_dialog(self):
         QMessageBox.about(self, "About CONVIO",
             "<h3>CONVIO: Automotive Wiring Harness Optimizer</h3><p>Version 1.0</p>"

@@ -262,32 +262,56 @@ class ClusteringDijkstra:
 
         all_pairs_lengths = dict(nx.all_pairs_dijkstra_path_length(chassis, weight="weight"))
 
-        # Iterative centroid refinement
+        # Baseline cost — agglomerative clustering output before any centroid
+        # optimisation. Used so the iter-1 delta is meaningful (it shows how
+        # much the first reassignment improves on the raw linkage assignment).
+        baseline_centroids = {}
+        baseline_total = 0.0
+        for cid, cdata in clusters.items():
+            if not cdata["io_nodes"]:
+                continue
+            c = self._find_optimal_centroid(graph, chassis, cdata["io_nodes"], all_pairs_lengths)
+            baseline_centroids[cid] = c
+            if c:
+                attachment = self._infer_attachment_nodes(graph, cdata["io_nodes"])
+                baseline_total += self._evaluate_candidate_cost(
+                    graph, chassis, c, cdata["io_nodes"], attachment, all_pairs_lengths,
+                )
+
+        # ── Iterative centroid refinement ─────────────────────────────────
+        # At each iteration:
+        #   1. Compute optimal centroids for the current assignments
+        #   2. Reassign each I/O to the nearest centroid
+        #   3. Record the cost of the *new* assignments under the *new*
+        #      centroids (i.e. the post-reassignment state)
+        #
+        # This makes the reported wire length and assignments_changed columns
+        # tell a consistent story: when assignments stabilise, the cost stops
+        # changing too. Reporting cost mid-iteration (with old assignments and
+        # new centroids) leads to the confusing "0 changes but length differs"
+        # case the user reported.
         iteration_results = []
+        prev_total = baseline_total  # iter-1 delta is relative to baseline
         for iteration in range(max_iterations):
             self.logger.info(f"Centroid optimisation iteration {iteration + 1}/{max_iterations}...")
 
+            # Step 1: optimal centroid for each cluster's current members
             centroids: Dict[str, Any] = {}
-            total_wire_this_iter = 0.0
             for cid, cdata in clusters.items():
                 if not cdata["io_nodes"]:
                     continue
-                centroid = self._find_optimal_centroid(graph, chassis, cdata["io_nodes"], all_pairs_lengths)
-                centroids[cid] = centroid
-                if centroid:
-                    attachment = self._infer_attachment_nodes(graph, cdata["io_nodes"])
-                    total_wire_this_iter += self._evaluate_candidate_cost(
-                        graph, chassis, centroid, cdata["io_nodes"], attachment, all_pairs_lengths,
-                    )
+                centroids[cid] = self._find_optimal_centroid(
+                    graph, chassis, cdata["io_nodes"], all_pairs_lengths,
+                )
 
+            # Step 2: reassign each I/O to the nearest centroid
             assignments_changed = 0
             all_io = [n for cdata in clusters.values() for n in cdata["io_nodes"]]
             for io_node in all_io:
                 current_cid = next(
                     (cid for cid, cdata in clusters.items() if io_node in cdata["io_nodes"]), None,
                 )
-                min_dist = float("inf")
-                best_cid = None
+                min_dist, best_cid = float("inf"), None
                 attachment_node = self._infer_attachment_nodes(graph, [io_node])[io_node]
                 for cid, centroid in centroids.items():
                     if not centroid:
@@ -301,11 +325,25 @@ class ClusteringDijkstra:
                     clusters[best_cid]["io_nodes"].append(io_node)
                     assignments_changed += 1
 
+            # Step 3: cost of the new state (post-reassignment, current centroids)
+            total_wire_this_iter = 0.0
+            for cid, cdata in clusters.items():
+                if not cdata["io_nodes"] or not centroids.get(cid):
+                    continue
+                attachment = self._infer_attachment_nodes(graph, cdata["io_nodes"])
+                total_wire_this_iter += self._evaluate_candidate_cost(
+                    graph, chassis, centroids[cid], cdata["io_nodes"],
+                    attachment, all_pairs_lengths,
+                )
+
+            delta = total_wire_this_iter - prev_total
             iteration_results.append({
-                "iteration": iteration + 1,
+                "iteration":           iteration + 1,
                 "assignments_changed": assignments_changed,
-                "total_wire_length": round(total_wire_this_iter, 2),
+                "total_wire_length":   round(total_wire_this_iter, 2),
+                "delta_vs_previous":   round(delta, 2),
             })
+            prev_total = total_wire_this_iter
 
             if assignments_changed == 0:
                 self.logger.info(f"Assignments stabilised at iteration {iteration + 1}.")
@@ -322,6 +360,7 @@ class ClusteringDijkstra:
 
         result = self._format_and_export_output(graph, clusters, total_wire_length)
         result["iteration_results"] = iteration_results
+        result["baseline_wire_length"] = round(baseline_total, 2)
         return result
 
     # --- Helper Methods for Graph Preparation ---

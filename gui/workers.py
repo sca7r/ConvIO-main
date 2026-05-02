@@ -158,13 +158,16 @@ class OptimizationWorker(QThread):
             n_clusters, graph = int(self.kwargs["n_clusters"]), self.kwargs["graph"]
             linkage_methods = ["average", "complete", "single"]
             results, best_length, best_method = {}, float("inf"), None
+            max_iterations = int(self.kwargs.get("max_iterations", 5))
             for i, method in enumerate(linkage_methods):
                 self.status_updated.emit(f"Running '{method}' linkage...")
                 self.progress_updated.emit(int((i / len(linkage_methods)) * 100))
-                # refine=False: compare pure linkage output — with refinement
-                # on, all three methods converge to the same partition.
-                run_result = clusterer.cluster_and_optimize(
-                    graph, n_clusters, linkage_method=method, refine=False,
+                # Use the same iterative centroid optimisation pipeline as
+                # the main Step 4 run so the comparison table and final result
+                # measure the same thing.
+                run_result = clusterer.cluster_and_optimize_iterative(
+                    graph, n_clusters, linkage_method=method,
+                    max_iterations=max_iterations,
                 )
                 results[method] = run_result
                 total = run_result.get("overall_wiring_harness_length", float("inf"))

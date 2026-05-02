@@ -10,8 +10,94 @@ from typing import Any, Dict
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor, QFont
 from PyQt5.QtWidgets import (
-    QDialog, QHeaderView, QLabel, QTableWidget, QTableWidgetItem, QVBoxLayout,
+    QDialog, QDialogButtonBox, QDoubleSpinBox, QFormLayout, QGroupBox,
+    QHeaderView, QLabel, QLineEdit, QTableWidget, QTableWidgetItem,
+    QVBoxLayout,
 )
+
+
+class CostSettingsDialog(QDialog):
+    """
+    Modal dialog for editing cost and weight parameters at runtime.
+
+    Reads from and writes back to a cost_cfg dict with the keys:
+        currency             (str)
+        wire_price_per_m     (float)
+        CAN_bus_price_per_m  (float)
+        wire_weight_per_m_kg (float)
+
+    The dialog itself does not persist changes to disk — the caller is
+    responsible for re-running any analysis that should reflect the new values.
+    """
+
+    def __init__(self, cost_cfg: Dict[str, Any], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Cost & Weight Settings")
+        self.setMinimumWidth(360)
+        self._initial_cfg = dict(cost_cfg)
+
+        layout = QVBoxLayout(self)
+
+        # ─── Cost section ─────────────────────────────────────────────
+        cost_group = QGroupBox("Cost (per metre)")
+        cost_form  = QFormLayout(cost_group)
+
+        self.currency_edit = QLineEdit(str(cost_cfg.get("currency", "EURO")))
+        self.currency_edit.setMaxLength(8)
+        cost_form.addRow("Currency:", self.currency_edit)
+
+        self.wire_price = self._make_spin(cost_cfg.get("wire_price_per_m", 0.0),
+                                           suffix=" / m", decimals=3, maximum=1000.0)
+        cost_form.addRow("Wire Price:", self.wire_price)
+
+        self.can_price = self._make_spin(cost_cfg.get("CAN_bus_price_per_m", 0.0),
+                                          suffix=" / m", decimals=3, maximum=1000.0)
+        cost_form.addRow("CAN/Network Bus Price:", self.can_price)
+        layout.addWidget(cost_group)
+
+        # ─── Weight section ───────────────────────────────────────────
+        weight_group = QGroupBox("Weight")
+        weight_form  = QFormLayout(weight_group)
+        self.wire_weight = self._make_spin(cost_cfg.get("wire_weight_per_m_kg", 0.0),
+                                            suffix=" kg / m", decimals=4, maximum=10.0)
+        weight_form.addRow("Wire Weight:", self.wire_weight)
+        layout.addWidget(weight_group)
+
+        # ─── Note ─────────────────────────────────────────────────────
+        note = QLabel(
+            "<i>Changes are applied immediately to all displayed metrics. "
+            "Re-run Step 5 to refresh topology results.</i>"
+        )
+        note.setWordWrap(True)
+        note.setStyleSheet("color: #555; font-size: 10px;")
+        layout.addWidget(note)
+
+        # ─── OK / Cancel ──────────────────────────────────────────────
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    @staticmethod
+    def _make_spin(value: float, suffix: str = "", decimals: int = 3,
+                    maximum: float = 100.0) -> QDoubleSpinBox:
+        spin = QDoubleSpinBox()
+        spin.setDecimals(decimals)
+        spin.setMinimum(0.0)
+        spin.setMaximum(maximum)
+        spin.setSingleStep(10 ** -min(decimals, 2))
+        spin.setSuffix(suffix)
+        spin.setValue(float(value))
+        return spin
+
+    def get_settings(self) -> Dict[str, Any]:
+        """Return the edited values as a cost_cfg-shaped dict."""
+        return {
+            "currency":             self.currency_edit.text().strip() or "EURO",
+            "wire_price_per_m":     float(self.wire_price.value()),
+            "CAN_bus_price_per_m":  float(self.can_price.value()),
+            "wire_weight_per_m_kg": float(self.wire_weight.value()),
+        }
 
 
 class ComparisonWindow(QDialog):
