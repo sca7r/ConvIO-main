@@ -33,7 +33,7 @@ from PyQt5.QtCore import Qt
 
 
 # ── Palette constants ──────────────────────────────────────────────────────────
-BUS_PEN       = pg.mkPen("#2962FF", width=3)
+BUS_PEN       = pg.mkPen("#2962FF", width=2)
 REDUNDANT_PEN = pg.mkPen("#D32F2F", width=2, style=Qt.DashLine)
 STAR_PEN      = pg.mkPen("#1565C0", width=2.5)
 RING_PEN      = pg.mkPen("#E65100", width=2, style=Qt.DashLine)

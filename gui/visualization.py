@@ -86,10 +86,10 @@ class VisualizationMixin:
             return
         renderer.reset_view(view)
         pos = self._get_node_positions(self.current_graph)
-        renderer.draw_base_graph(view, self.current_graph, pos, self.config.config, node_alpha=1.0)
         renderer.draw_cluster_layer(view, clustering_results.get("clusters", {}), pos,
                                      self._get_cluster_colors())
         renderer.draw_bus_topology(view, clustering_results, pos)
+        renderer.draw_base_graph(view, self.current_graph, pos, self.config.config, node_alpha=1.0)
         renderer.set_view_limits(view, pos)
         # Tab switch handled by the caller (on_optimization_completed or run_communication_network)
 
@@ -101,8 +101,6 @@ class VisualizationMixin:
             return
         renderer.reset_view(self.hpc_view)
         pos = self._get_node_positions(self.current_graph)
-        # Faded chassis backdrop + full-colour I/O nodes on top.
-        renderer.draw_base_graph(self.hpc_view, self.current_graph, pos, self.config.config, node_alpha=1.0)
 
         paths = self.hpc_results.get("paths", {})
         legend_added = False
@@ -115,6 +113,8 @@ class VisualizationMixin:
                 legend_added = True
 
         renderer.draw_io_nodes(self.hpc_view, self.current_graph, pos, self.config.config, alpha=1.0)
+        # Faded chassis backdrop + full-colour I/O nodes on top.
+        renderer.draw_base_graph(self.hpc_view, self.current_graph, pos, self.config.config, node_alpha=1.0)
         renderer.set_view_limits(self.hpc_view, pos)
         # Tab switch handled by on_hpc_completed (so the Baseline *container*
         # tab is selected, not the inner plot widget).
@@ -127,7 +127,6 @@ class VisualizationMixin:
             return
         renderer.reset_view(view)
         pos = self._get_node_positions(self.current_graph)
-        renderer.draw_base_graph(view, self.current_graph, pos, self.config.config, node_alpha=1.0)
         renderer.draw_bus_topology(view, clustering_results, pos)
 
         # Redundant return path is precomputed in
@@ -147,6 +146,7 @@ class VisualizationMixin:
 
         renderer.draw_cluster_layer(view, clustering_results.get("clusters", {}), pos,
                                      self._get_cluster_colors())
+        renderer.draw_base_graph(view, self.current_graph, pos, self.config.config, node_alpha=1.0)
         renderer.set_view_limits(view, pos)
 
     # ==================================================================
@@ -157,9 +157,9 @@ class VisualizationMixin:
             return
         renderer.reset_view(view)
         pos = self._get_node_positions(self.current_graph)
-        renderer.draw_base_graph(view, self.current_graph, pos, self.config.config, node_alpha=1.0)
         renderer.draw_cluster_layer(view, clustering_results.get("clusters", {}), pos,
                                      self._get_cluster_colors(), draw_wiring=True)
+        renderer.draw_base_graph(view, self.current_graph, pos, self.config.config, node_alpha=1.0)
 
         # Star and ring paths are precomputed in main_window.run_communication_network
         # so the metric and the visual always match.
