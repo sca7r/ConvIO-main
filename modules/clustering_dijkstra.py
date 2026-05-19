@@ -186,9 +186,10 @@ class ClusteringDijkstra:
         # Step 3: Group I/O nodes into clusters.
         self.logger.info(f"Starting clustering with k={k} and linkage='{linkage_method}'...")
         labels = self._cluster_by_graph_distance(chassis, io_nodes, io_attachment_map, k, linkage_method)
-        clusters = {f"cluster_{i}": {"io_nodes": []} for i in range(k)}
+        clusters = {f"cluster_{i + 1}": {"io_nodes": []} for i in range(k)}
         for i, node in enumerate(io_nodes):
-            clusters[f"cluster_{labels[i]}"]["io_nodes"].append(node)
+            cluster_id = f"cluster_{labels[i] + 1}"
+            clusters[cluster_id]["io_nodes"].append(node)
 
         # Step 4: (optional) Refine clusters by re-assigning I/Os to closest centroids.
         all_pairs_lengths = dict(nx.all_pairs_dijkstra_path_length(chassis, weight="weight"))
@@ -228,9 +229,10 @@ class ClusteringDijkstra:
         self.logger.info(f"Initial agglomerative clustering: k={k}, linkage='{linkage_method}'")
         labels = self._cluster_by_graph_distance(chassis, io_nodes, io_attachment_map, k, linkage_method)
 
-        clusters: Dict[str, Any] = {f"cluster_{i}": {"io_nodes": []} for i in range(k)}
+        clusters: Dict[str, Any] = {f"cluster_{i + 1}": {"io_nodes": []} for i in range(k)}
         for node, label in zip(io_nodes, labels):
-            clusters[f"cluster_{label}"]["io_nodes"].append(node)
+            cluster_id = f"cluster_{int(label) + 1}"
+            clusters[cluster_id]["io_nodes"].append(node)
 
         return {"clusters": clusters, "io_nodes": io_nodes}
 
@@ -256,9 +258,10 @@ class ClusteringDijkstra:
 
         # Initial clustering
         labels = self._cluster_by_graph_distance(chassis, io_nodes, io_attachment_map, k, linkage_method)
-        clusters: Dict[str, Any] = {f"cluster_{i}": {"io_nodes": []} for i in range(k)}
+        clusters: Dict[str, Any] = {f"cluster_{i + 1}": {"io_nodes": []} for i in range(k)}
         for node, label in zip(io_nodes, labels):
-            clusters[f"cluster_{label}"]["io_nodes"].append(node)
+            cluster_id = f"cluster_{int(label) + 1}"
+            clusters[cluster_id]["io_nodes"].append(node)
 
         all_pairs_lengths = dict(nx.all_pairs_dijkstra_path_length(chassis, weight="weight"))
 

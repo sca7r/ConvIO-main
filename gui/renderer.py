@@ -165,7 +165,7 @@ def draw_cluster_io_only(
             size=10, symbol="o",
             brush=pg.mkBrush(color),
             pen=pg.mkPen("k", width=0.5),
-            name=f"Cluster {i}  ({len(io_nodes)} I/O)",
+            name=f"Cluster {i + 1}  ({len(io_nodes)} I/O)",
         ))
 
 
@@ -295,7 +295,7 @@ def _resolve_style(type_name: str, node_defs: Dict, node_types: Dict, alpha: flo
 def _draw_wiring_paths(view, cluster_data, pos, color, i, legend_added: set) -> None:
     centroid     = cluster_data.get("centroid")
     wiring_paths = cluster_data.get("wiring_paths", {})
-    cluster_label = f"Cluster {i} Wiring"
+    cluster_label = f"Cluster {i + 1} Wiring"
 
     for _io, path_data in wiring_paths.items():
         path = path_data.get("path", [])
