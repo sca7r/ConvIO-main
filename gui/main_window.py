@@ -526,7 +526,7 @@ class WiringHarnessOptimizer(VisualizationMixin, QMainWindow):
             "chassis_length": float(bus_len),
             "connector_length": 0.0,
             "total_length": float(bus_len),
-            "status": "identical_to_bus",
+            "status": "ok",
         }
 
         redundant_len = bus_len
