@@ -68,7 +68,7 @@ def draw_base_graph(
     graph,
     pos: Dict[str, Tuple[float, float]],
     config_dict: Dict[str, Any],
-    edge_alpha: float = 0.2,
+    edge_alpha: float = 0.5,
     node_alpha: float = 0.3,
     include_io: bool = False,
 ) -> None:
@@ -240,7 +240,7 @@ def _draw_edges(view, graph, pos, alpha: float, name: str = None) -> None:
     if xs:
         view.addItem(pg.PlotCurveItem(
             xs, ys,
-            pen=pg.mkPen((0, 0, 0, int(255 * alpha)), width=1),
+            pen=pg.mkPen((0, 0, 0, int(255 * alpha)), width=1.2),
             connect="finite", name=name,
         ))
 

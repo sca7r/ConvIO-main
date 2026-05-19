@@ -34,8 +34,7 @@ class VisualizationMixin:
         if not pos:
             self.log("No positions to plot")
             return
-        renderer.draw_base_graph(self.graph_view, graph, pos, self.config.config,
-                                  edge_alpha=0.15, node_alpha=1.0, include_io=True)
+        renderer.draw_base_graph(self.graph_view, graph, pos, self.config.config, node_alpha=1.0, include_io=True)
         renderer.set_view_limits(self.graph_view, pos)
         # Tab switch handled by on_graph_loaded
 
@@ -68,8 +67,7 @@ class VisualizationMixin:
             return
         renderer.reset_view(view)
         pos = self._get_node_positions(self.current_graph)
-        renderer.draw_base_graph(view, self.current_graph, pos, self.config.config,
-                                  edge_alpha=0.2, node_alpha=0.3)
+        renderer.draw_base_graph(view, self.current_graph, pos, self.config.config, node_alpha=1.0)
         renderer.draw_cluster_io_only(view, initial_result.get("clusters", {}), pos,
                                        self._get_cluster_colors())
         renderer.set_view_limits(view, pos)
@@ -88,8 +86,7 @@ class VisualizationMixin:
             return
         renderer.reset_view(view)
         pos = self._get_node_positions(self.current_graph)
-        renderer.draw_base_graph(view, self.current_graph, pos, self.config.config,
-                                  edge_alpha=0.2, node_alpha=0.3)
+        renderer.draw_base_graph(view, self.current_graph, pos, self.config.config, node_alpha=1.0)
         renderer.draw_cluster_layer(view, clustering_results.get("clusters", {}), pos,
                                      self._get_cluster_colors())
         renderer.draw_bus_topology(view, clustering_results, pos)
@@ -105,9 +102,7 @@ class VisualizationMixin:
         renderer.reset_view(self.hpc_view)
         pos = self._get_node_positions(self.current_graph)
         # Faded chassis backdrop + full-colour I/O nodes on top.
-        renderer.draw_base_graph(self.hpc_view, self.current_graph, pos, self.config.config,
-                                  edge_alpha=0.2, node_alpha=0.3)
-        renderer.draw_io_nodes(self.hpc_view, self.current_graph, pos, self.config.config, alpha=1.0)
+        renderer.draw_base_graph(self.hpc_view, self.current_graph, pos, self.config.config, node_alpha=1.0)
 
         paths = self.hpc_results.get("paths", {})
         legend_added = False
@@ -119,6 +114,7 @@ class VisualizationMixin:
                                    legend_label="Direct HPC Wiring" if not legend_added else None)
                 legend_added = True
 
+        renderer.draw_io_nodes(self.hpc_view, self.current_graph, pos, self.config.config, alpha=1.0)
         renderer.set_view_limits(self.hpc_view, pos)
         # Tab switch handled by on_hpc_completed (so the Baseline *container*
         # tab is selected, not the inner plot widget).
@@ -131,10 +127,7 @@ class VisualizationMixin:
             return
         renderer.reset_view(view)
         pos = self._get_node_positions(self.current_graph)
-        renderer.draw_base_graph(view, self.current_graph, pos, self.config.config,
-                                  edge_alpha=0.2, node_alpha=0.3)
-        renderer.draw_cluster_layer(view, clustering_results.get("clusters", {}), pos,
-                                     self._get_cluster_colors())
+        renderer.draw_base_graph(view, self.current_graph, pos, self.config.config, node_alpha=1.0)
         renderer.draw_bus_topology(view, clustering_results, pos)
 
         # Redundant return path is precomputed in
@@ -152,6 +145,8 @@ class VisualizationMixin:
                                renderer.REDUNDANT_PEN,
                                legend_label=legend_label)
 
+        renderer.draw_cluster_layer(view, clustering_results.get("clusters", {}), pos,
+                                     self._get_cluster_colors())
         renderer.set_view_limits(view, pos)
 
     # ==================================================================
@@ -162,8 +157,7 @@ class VisualizationMixin:
             return
         renderer.reset_view(view)
         pos = self._get_node_positions(self.current_graph)
-        renderer.draw_base_graph(view, self.current_graph, pos, self.config.config,
-                                  edge_alpha=0.2, node_alpha=0.3)
+        renderer.draw_base_graph(view, self.current_graph, pos, self.config.config, node_alpha=1.0)
         renderer.draw_cluster_layer(view, clustering_results.get("clusters", {}), pos,
                                      self._get_cluster_colors(), draw_wiring=True)
 
