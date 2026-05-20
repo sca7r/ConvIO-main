@@ -310,7 +310,8 @@ def _draw_wiring_paths(view, cluster_data, pos, color, cluster_num: Optional[int
 
     cluster_label = None
     if cluster_num is not None:
-        cluster_label = f"Cluster {cluster_num} Wiring"
+        io_nodes = cluster_data.get("io_nodes", [])
+        cluster_label = f"Cluster {cluster_num} Wiring ({len(io_nodes)} I/O)"
 
     for _io, path_data in wiring_paths.items():
         path = path_data.get("path", [])
