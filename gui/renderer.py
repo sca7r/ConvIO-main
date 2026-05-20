@@ -85,7 +85,7 @@ def draw_base_graph(
     else:
         subg = graph
 
-    _draw_edges(view, subg, pos, edge_alpha, name="Chassis")
+    _draw_edges(view, subg, pos, alpha=1, name="Chassis")
     _draw_nodes(view, subg, pos, config_dict, alpha=node_alpha)
 
 
