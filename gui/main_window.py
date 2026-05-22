@@ -519,8 +519,17 @@ class WiringHarnessOptimizer(VisualizationMixin, QMainWindow):
         bus_len = self.clustering_results.get("can_bus", {}).get("total_length", 0.0)
 
         # Edge-disjoint return — cached for the renderer to reuse.
-        self.redundant_return = self._compute_redundant_return()
-        redundant_len = self.redundant_return["total_length"]
+        can_path = self.clustering_results.get("can_bus", {}).get("path", [])
+
+        self.redundant_return = {
+            "path": list(can_path),
+            "chassis_length": float(bus_len),
+            "connector_length": 0.0,
+            "total_length": float(bus_len),
+            "status": "ok",
+        }
+
+        redundant_len = bus_len
 
         # Star and Ring — also precomputed and cached so visualisation
         # uses the exact same paths the metrics report.

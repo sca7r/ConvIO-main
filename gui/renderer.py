@@ -33,7 +33,7 @@ from PyQt5.QtCore import Qt
 
 
 # ── Palette constants ──────────────────────────────────────────────────────────
-BUS_PEN       = pg.mkPen("#2962FF", width=3)
+BUS_PEN       = pg.mkPen("#2962FF", width=2)
 REDUNDANT_PEN = pg.mkPen("#D32F2F", width=2, style=Qt.DashLine)
 STAR_PEN      = pg.mkPen("#1565C0", width=2.5)
 RING_PEN      = pg.mkPen("#E65100", width=2, style=Qt.DashLine)
@@ -68,7 +68,7 @@ def draw_base_graph(
     graph,
     pos: Dict[str, Tuple[float, float]],
     config_dict: Dict[str, Any],
-    edge_alpha: float = 0.2,
+    edge_alpha: float = 0.5,
     node_alpha: float = 0.3,
     include_io: bool = False,
 ) -> None:
@@ -85,7 +85,7 @@ def draw_base_graph(
     else:
         subg = graph
 
-    _draw_edges(view, subg, pos, edge_alpha, name="Chassis")
+    _draw_edges(view, subg, pos, alpha=1, name="Chassis")
     _draw_nodes(view, subg, pos, config_dict, alpha=node_alpha)
 
 
@@ -123,9 +123,15 @@ def draw_cluster_layer(
     """
     legend_added: set = set()
 
-    for i, (cluster_id, cluster_data) in enumerate(clusters.items()):
+    for cluster_id, cluster_data in clusters.items():
         is_can_bus = cluster_id == "can_bus"
-        color      = colors[i % len(colors)]
+        cluster_num = _cluster_number(cluster_id)
+
+        # Skip non-cluster entries except can_bus.
+        if cluster_num is None and not is_can_bus:
+            continue
+
+        color = _cluster_color(cluster_id, colors)
 
         # I/O nodes (coloured scatter)
         io_pts = [pos[n] for n in cluster_data.get("io_nodes", []) if n in pos]
@@ -139,11 +145,11 @@ def draw_cluster_layer(
             ))
 
         if draw_wiring and not is_can_bus:
-            _draw_wiring_paths(view, cluster_data, pos, color, i, legend_added)
+            _draw_wiring_paths(view, cluster_data, pos, color, cluster_num, legend_added)
             _draw_aggregator(view, cluster_id, cluster_data, color)
 
         if draw_wiring and is_can_bus:
-            _draw_wiring_paths(view, cluster_data, pos, color, i, legend_added)
+            _draw_wiring_paths(view, cluster_data, pos, color, None, legend_added)
 
 
 def draw_cluster_io_only(
@@ -153,19 +159,25 @@ def draw_cluster_io_only(
     colors: List,
 ) -> None:
     """Step 3 – colour I/O nodes by cluster; no paths, no centroids."""
-    for i, (cluster_id, cluster_data) in enumerate(clusters.items()):
-        color    = colors[i % len(colors)]
+    for cluster_id, cluster_data in clusters.items():
+        cluster_num = _cluster_number(cluster_id)
+        if cluster_num is None:
+            continue
+
+        color = _cluster_color(cluster_id, colors)
         io_nodes = cluster_data.get("io_nodes", [])
-        pts      = [pos[n] for n in io_nodes if n in pos]
+        pts = [pos[n] for n in io_nodes if n in pos]
+
         if not pts:
             continue
+
         arr = np.array(pts)
         view.addItem(pg.ScatterPlotItem(
             arr[:, 0], arr[:, 1],
             size=10, symbol="o",
             brush=pg.mkBrush(color),
             pen=pg.mkPen("k", width=0.5),
-            name=f"Cluster {i}  ({len(io_nodes)} I/O)",
+            name=f"Cluster {cluster_num}  ({len(io_nodes)} I/O)",
         ))
 
 
@@ -240,7 +252,7 @@ def _draw_edges(view, graph, pos, alpha: float, name: str = None) -> None:
     if xs:
         view.addItem(pg.PlotCurveItem(
             xs, ys,
-            pen=pg.mkPen((0, 0, 0, int(255 * alpha)), width=1),
+            pen=pg.mkPen((0, 0, 0, int(255 * alpha)), width=1.2),
             connect="finite", name=name,
         ))
 
@@ -292,10 +304,14 @@ def _resolve_style(type_name: str, node_defs: Dict, node_types: Dict, alpha: flo
     }
 
 
-def _draw_wiring_paths(view, cluster_data, pos, color, i, legend_added: set) -> None:
-    centroid     = cluster_data.get("centroid")
+def _draw_wiring_paths(view, cluster_data, pos, color, cluster_num: Optional[int], legend_added: set) -> None:
+    centroid = cluster_data.get("centroid")
     wiring_paths = cluster_data.get("wiring_paths", {})
-    cluster_label = f"Cluster {i} Wiring"
+
+    cluster_label = None
+    if cluster_num is not None:
+        io_nodes = cluster_data.get("io_nodes", [])
+        cluster_label = f"Cluster {cluster_num} Wiring ({len(io_nodes)} I/O)"
 
     for _io, path_data in wiring_paths.items():
         path = path_data.get("path", [])
@@ -306,9 +322,12 @@ def _draw_wiring_paths(view, cluster_data, pos, color, i, legend_added: set) -> 
             continue
         xs = [p[0] for p in vis_pts]
         ys = [p[1] for p in vis_pts]
-        name = cluster_label if cluster_label not in legend_added else None
-        if name:
+
+        name = None
+        if cluster_label and cluster_label not in legend_added:
+            name = cluster_label
             legend_added.add(cluster_label)
+
         view.addItem(pg.PlotCurveItem(
             xs, ys,
             pen=pg.mkPen(color, width=WIRING_WIDTH, style=Qt.DashLine),
@@ -334,3 +353,38 @@ def _draw_aggregator(view, cluster_id: str, cluster_data: Dict, color) -> None:
     )
     label.setPos(cx, cy)
     view.addItem(label)
+
+def _cluster_number(cluster_id: str) -> Optional[int]:
+    """Return 1-based cluster number from IDs like 'cluster_1'."""
+    if not isinstance(cluster_id, str) or not cluster_id.startswith("cluster_"):
+        return None
+
+    try:
+        return int(cluster_id.rsplit("_", 1)[-1])
+    except ValueError:
+        return None
+
+
+def _cluster_color(cluster_id: str, colors):
+    cluster_num = _cluster_number(cluster_id)
+
+    if not colors:
+        return pg.mkColor("#9B9B9B")
+
+    # Non-cluster fallback, e.g. can_bus.
+    if cluster_num is None:
+        if isinstance(colors, dict):
+            return colors.get(1, next(iter(colors.values())))
+        return colors[0]
+
+    # Dict case: cluster_1 -> colors[1]
+    if isinstance(colors, dict):
+        if cluster_num in colors:
+            return colors[cluster_num]
+
+        # Wrap safely if cluster count exceeds palette length.
+        keys = sorted(colors.keys())
+        return colors[keys[(cluster_num - 1) % len(keys)]]
+
+    # List case: cluster_1 -> colors[0]
+    return colors[(cluster_num - 1) % len(colors)]
